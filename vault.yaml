@@ -1,0 +1,138 @@
+apiVersion: vault.banzaicloud.com/v1alpha1
+kind: Vault
+metadata:
+  name: vault
+  namespace: default
+spec:
+  annotations:
+    common/annotation: "true"
+  caNamespaces:
+  - '*'
+  config:
+    listener:
+      tcp:
+        address: 0.0.0.0:8200
+        tls_cert_file: /vault/tls/server.crt
+        tls_key_file: /vault/tls/server.key
+    storage:
+      file:
+        path: ${ .Env.VAULT_STORAGE_FILE }
+    telemetry:
+      statsd_address: localhost:9125
+    ui: true
+  externalConfig:
+    auth:
+    - roles:
+      - bound_service_account_names:
+        - default
+        - vault-secrets-webhook
+        - vault
+        bound_service_account_namespaces:
+        - default
+        name: default
+        policies:
+        - allow_secrets
+        - allow_pki
+        ttl: 1h
+      - bound_service_account_names:
+        - default
+        bound_service_account_namespaces:
+        - dev
+        name: dev
+        policies:
+        - allow_dev
+        ttl: 1h
+      type: kubernetes      
+    policies:
+    - name: allow_secrets
+      rules: path "secret/*" { capabilities = ["create", "read", "update", "delete",
+        "list"] }
+    - name: allow_pki
+      rules: path "pki/*" { capabilities = ["create", "read", "update", "delete",
+        "list"] }
+    - name: allow_dev
+      rules: path "secret/dev/*" { capabilities = ["create", "read", "update", "delete",
+        "list"] }         
+    - name: allow_secrets
+      rules: path "secret/*" { capabilities = ["create", "read", "update", "delete",
+        "list"] }
+    - name: allow_pki
+      rules: path "pki/*" { capabilities = ["create", "read", "update", "delete",
+        "list"] }        
+    secrets:
+    - description: General secrets.
+      options:
+        version: 2
+      path: secret
+      type: kv
+    - config:
+        default_lease_ttl: 168h
+        max_lease_ttl: 720h
+      configuration:
+        config:
+        - crl_distribution_points: https://vault.default:8200/v1/pki/crl
+          issuing_certificates: https://vault.default:8200/v1/pki/ca
+          name: urls
+        roles:
+        - allow_subdomains: true
+          allowed_domains: localhost,pod,svc,default
+          generate_lease: true
+          name: default
+          ttl: 1m
+        root/generate:
+        - common_name: vault.default
+          name: internal
+      description: Vault PKI Backend
+      type: pki
+    startupSecrets:
+    - data:
+        data:
+          AWS_ACCESS_KEY_ID: secretId
+          AWS_SECRET_ACCESS_KEY: s3cr3t
+      path: secret/data/accounts/aws
+      type: kv
+    - data:
+        data:
+          DOCKER_REPO_PASSWORD: dockerrepopassword
+          DOCKER_REPO_USER: dockerrepouser
+      path: secret/data/dockerrepo
+      type: kv
+    - data:
+        data:
+          MYSQL_PASSWORD: 3xtr3ms3cr3t
+          MYSQL_ROOT_PASSWORD: s3cr3t
+      path: secret/data/mysql
+      type: kv
+  image: vault:1.6.2
+  ingress:
+    annotations: {}
+    spec: {}
+  istioEnabled: false
+  serviceAccount: vault
+  serviceType: ClusterIP
+  size: 1
+  unsealConfig:
+    kubernetes:
+      secretNamespace: default
+    options:
+      preFlightChecks: true
+  vaultAnnotations:
+    type/instance: vault
+  vaultConfigurerAnnotations:
+    type/instance: vaultconfigurer
+  vaultConfigurerLabels:
+    example.com/log-format: string
+  vaultEnvsConfig:
+  - name: VAULT_LOG_LEVEL
+    value: debug
+  - name: VAULT_STORAGE_FILE
+    value: /vault/file
+  vaultLabels:
+    example.com/log-format: json
+  volumeMounts:
+  - mountPath: /vault/file
+    name: vault-file
+  volumes:
+  - name: vault-file
+    persistentVolumeClaim:
+      claimName: vault-file
